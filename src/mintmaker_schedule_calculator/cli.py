@@ -1,51 +1,49 @@
-#!/usr/bin/env python3
-"""
-CronJob Schedule Calculator for OpenShift
-
-This script fetches CronJob schedules from OpenShift clusters and parses
-Renovate configuration to extract manager schedules. It calculates the
-next N scheduled runs for each and writes results to txt files.
-
-Usage:
-    python schedules_calculator_script.py -n 5 -c renovate.json
-"""
-
-import subprocess
 import argparse
-import sys
-import logging
 import json
+import logging
+import subprocess
 from datetime import datetime, timezone
+
 from cron_converter import Cron
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 CRONJOB_NAME = "create-dependencyupdatecheck"
 CRONJOB_NAMESPACE = "mintmaker"
 
-def get_cronjob_schedule_from_oc(cronjob_name, namespace=CRONJOB_NAMESPACE):
+
+def get_cronjob_schedule_from_oc(cronjob_name: str, namespace: str = CRONJOB_NAMESPACE) -> str | None:
     try:
-        result = subprocess.run([
-            "oc", "get", "cronjob", cronjob_name,
-            "-n", namespace,
-            "-o", "jsonpath={.spec.schedule}"
-        ], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [
+                "oc",
+                "get",
+                "cronjob",
+                cronjob_name,
+                "-n",
+                namespace,
+                "-o",
+                "jsonpath={.spec.schedule}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
         schedule = result.stdout.strip()
         logger.info("Found schedule: %s.", schedule)
         return schedule
-
     except Exception as e:
         logger.error("Error fetching schedule: %s.", e)
         return None
 
 
-def merge_cron_schedules(cron_expression, general_schedule_expression):
+def merge_cron_schedules(cron_expression: str, general_schedule_expression: str) -> Cron | None:
     """Merge two cron expressions by intersecting their fields."""
     cron = Cron()
     cron.from_string(cron_expression)
@@ -60,7 +58,7 @@ def merge_cron_schedules(cron_expression, general_schedule_expression):
     general_list = general_cron.to_list()
 
     field_names = ["minutes", "hours", "days of month", "months", "days of week"]
-    merged = []
+    merged: list[list[int]] = []
     for i in range(len(field_names)):
         intersection = sorted(set(cron_list[i]) & set(general_list[i]))
         if not intersection:
@@ -73,11 +71,12 @@ def merge_cron_schedules(cron_expression, general_schedule_expression):
     return merged_cron
 
 
-def analyze_cron_schedule(cron_expression, general_schedule_expression, number_of_runs):
+def analyze_cron_schedule(
+    cron_expression: str, general_schedule_expression: str, number_of_runs: int
+) -> list[str]:
     logger.info("Finding next %d aligned runs between schedules.", number_of_runs)
 
     merged_schedule = merge_cron_schedules(cron_expression, general_schedule_expression)
-
     if merged_schedule is None:
         logger.warning("Schedules have no overlap - they never align.")
         return []
@@ -87,28 +86,27 @@ def analyze_cron_schedule(cron_expression, general_schedule_expression, number_o
     reference = datetime.now(timezone.utc)
     schedule = merged_schedule.schedule(reference)
 
-    next_runs = []
+    next_runs: list[str] = []
     for _ in range(number_of_runs):
         next_runs.append(schedule.next().isoformat(timespec="seconds"))
 
     return next_runs
 
 
-def write_to_txt(next_runs, filename="scheduled_times.txt"):
+def write_to_txt(next_runs: list[str], filename: str = "scheduled_times.txt") -> bool:
     try:
         with open(filename, "w", encoding="utf-8") as output_file:
             for time in next_runs:
                 output_file.write(f"{time}\n")
         logger.info("Results written to %s.", filename)
         return True
-
     except Exception as e:
         logger.error("Could not write to file %s: %s.", filename, e)
         return False
 
 
-def find_managers_with_schedules(config):
-    managers = {}
+def find_managers_with_schedules(config: dict) -> dict[str, str]:
+    managers: dict[str, str] = {}
     enabled_managers = config.get("enabledManagers", [])
 
     for manager in enabled_managers:
@@ -123,7 +121,7 @@ def find_managers_with_schedules(config):
     return managers
 
 
-def parse_renovate_config(config_path):
+def parse_renovate_config(config_path: str) -> dict[str, str]:
     try:
         with open(config_path, "r", encoding="utf-8") as config_file:
             config = json.load(config_file)
@@ -136,20 +134,37 @@ def parse_renovate_config(config_path):
             logger.info("No managers with schedules found.")
 
         return managers_with_schedules
-
     except Exception as e:
         logger.error("Error parsing renovate config: %s.", e)
         return {}
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mintmaker_schedule_calculator",
+        description="Analyze CronJob and Renovate managers schedules.",
+    )
+    parser.add_argument(
+        "-n",
+        "--count",
+        type=int,
+        default=5,
+        help="Number of next scheduled runs to calculate (default: 5)",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default="renovate.json",
+        help="Config path for renovate.json",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
     try:
-        parser = argparse.ArgumentParser(description="Analyze CronJob and Renovate managers schedules.")
-        parser.add_argument("-n", "--count", type=int, default=5,
-                            help="Number of next scheduled runs to calculate (default: 5)")
-        parser.add_argument("-c", "--config", type=str, default="renovate.json",
-                            help="Config path for renovate.json")
-        args = parser.parse_args()
+        parser = build_parser()
+        args = parser.parse_args(argv)
 
         logger.info("Processing OpenShift CronJob...")
         general_schedule = get_cronjob_schedule_from_oc(CRONJOB_NAME)
@@ -173,18 +188,16 @@ def main():
                 safe_name = manager_name.replace(".", "_").replace("-", "_")
                 filename = f"{safe_name}_scheduled_times.txt"
                 write_to_txt(result, filename)
-
             except Exception as e:
                 logger.error("Failed to process manager '%s': %s.", manager_name, e)
 
         logger.info("Schedule analysis complete.")
         return 0
-
     except Exception as e:
         logger.error("Error while analyzing schedules: %s.", e)
         return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
 
