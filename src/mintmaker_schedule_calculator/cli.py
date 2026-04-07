@@ -1,10 +1,11 @@
 import argparse
 import json
 import logging
-import subprocess
 from datetime import datetime, timezone
 
 from cron_converter import Cron
+
+from .k8s import get_cronjob_schedule_from_k8s
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,32 +16,6 @@ logger = logging.getLogger(__name__)
 
 CRONJOB_NAME = "create-dependencyupdatecheck"
 CRONJOB_NAMESPACE = "mintmaker"
-
-
-def get_cronjob_schedule_from_oc(cronjob_name: str, namespace: str = CRONJOB_NAMESPACE) -> str | None:
-    try:
-        result = subprocess.run(
-            [
-                "oc",
-                "get",
-                "cronjob",
-                cronjob_name,
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.spec.schedule}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-
-        schedule = result.stdout.strip()
-        logger.info("Found schedule: %s.", schedule)
-        return schedule
-    except Exception as e:
-        logger.error("Error fetching schedule: %s.", e)
-        return None
 
 
 def merge_cron_schedules(cron_expression: str, general_schedule_expression: str) -> Cron | None:
@@ -158,6 +133,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="renovate.json",
         help="Config path for renovate.json",
     )
+    parser.add_argument(
+        "--cronjob-name",
+        type=str,
+        default=CRONJOB_NAME,
+        help=f"CronJob name to read from the cluster (default: {CRONJOB_NAME})",
+    )
+    parser.add_argument(
+        "--namespace",
+        type=str,
+        default=CRONJOB_NAMESPACE,
+        help=f"Kubernetes namespace for the CronJob (default: {CRONJOB_NAMESPACE})",
+    )
     return parser
 
 
@@ -166,8 +153,11 @@ def main(argv: list[str] | None = None) -> int:
         parser = build_parser()
         args = parser.parse_args(argv)
 
-        logger.info("Processing OpenShift CronJob...")
-        general_schedule = get_cronjob_schedule_from_oc(CRONJOB_NAME)
+        logger.info("Processing CronJob schedule...")
+        general_schedule = get_cronjob_schedule_from_k8s(
+            cronjob_name=args.cronjob_name,
+            namespace=args.namespace,
+        )
         if not general_schedule:
             return 1
 
