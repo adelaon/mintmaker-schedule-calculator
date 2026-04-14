@@ -13,7 +13,7 @@ next `n` scheduled runs and writes results to `.txt` files:
 
 - Python **3.12**
 - [`uv`](https://docs.astral.sh/uv/)
-- `oc` CLI (only required if you want to fetch the CronJob schedule from an OpenShift cluster)
+- Access to a Kubernetes/OpenShift cluster - needed for the tool to fetch the CronJob schedule from the cluster
 
 ## Setup (with uv)
 
@@ -43,6 +43,8 @@ uv run python -m mintmaker_schedule_calculator -n 5 -c renovate.json
 
 - `-n / --count`: number of upcoming runs to calculate (default: `5`)
 - `-c / --config`: path to a `renovate.json` file (default: `renovate.json`)
+- `--cronjob-name`: CronJob name to read from the cluster (default: `create-dependencyupdatecheck`)
+- `--namespace`: Kubernetes namespace for the CronJob (default: `mintmaker`)
 
 To show help/usage hint with options, run:
 
@@ -52,4 +54,6 @@ uv run python -m mintmaker_schedule_calculator -h
 
 ### Notes
 
-- The script shells out to `oc` to read the `create-dependencyupdatecheck` CronJob schedule from the `mintmaker` namespace. Make sure you are logged in (`oc login ...`) and have access to that cluster/namespace.
+- By default, the tool reads the CronJob schedule using the Kubernetes Python client ([`kubernetes-client/python`](https://github.com/kubernetes-client/python)).
+  - In-cluster: it uses the pod’s service account credentials.
+  - Locally: it falls back to your kubeconfig (same cluster/login context you’d use with `kubectl`/`oc`).
