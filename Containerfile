@@ -1,5 +1,9 @@
 FROM registry.access.redhat.com/ubi10/python-312-minimal@sha256:3dc047bf30c6dac75b7a74aebcb8944ce35f46cc421543d9ce74716d2a6e611e
 
+WORKDIR /
+# OpenShift preflight check requires licensing files under /licenses
+COPY licenses/ licenses
+
 WORKDIR /opt/app-root/src
 
 USER 0
@@ -16,5 +20,12 @@ RUN uv sync --frozen --no-dev
 ENV VIRTUAL_ENV=/opt/app-root/src/.venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
-CMD ["python", "-m", "mintmaker_schedule_calculator"]
+# Labels
+LABEL name="Mintmaker Schedule Calculator"
+LABEL description="Calculates the schedule for Mintmaker"
+LABEL io.k8s.description="Mintmaker Schedule Calculator"
+LABEL io.k8s.display-name="mintmaker-schedule-calculator"
+LABEL summary="Mintmaker Schedule Calculator"
+LABEL com.redhat.component="mintmaker-schedule-calculator"
 
+CMD ["python", "-m", "mintmaker_schedule_calculator"]
